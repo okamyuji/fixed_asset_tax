@@ -67,8 +67,13 @@ Rails APIバックエンドとReact/TypeScriptフロントエンドで構成さ�
 - **Ruby 3.4.8**
 - **Rails 8.1.1**
 - **MySQL 8.0** (Dockerコンテナで実行)
+- **Puma** (アプリケーションサーバー、マルチワーカー・マルチスレッド対応)
+- **Solid Cache** (DBベースのキャッシュストア、Redisなし)
+- **Solid Queue** (DBベースのジョブキュー、Redisなし)
+- **Solid Cable** (DBベースのWebSocket、Redisなし)
 - **JWT認証**
 - **Minitest** + **FactoryBot** (テスト)
+- **Bullet** (N+1クエリ検出、開発環境)
 - **RuboCop** (Linter)
 
 ### フロントエンド
@@ -89,7 +94,257 @@ Rails APIバックエンドとReact/TypeScriptフロントエンドで構成さ�
 ### インフラ
 
 - **Docker** + **Docker Compose**
+- **Kamal** (デプロイツール)
 - **マルチステージビルド** (本番環境最適化)
+
+## パフォーマンス最適化
+
+本システムでは、Rails 8.1の最新機能を活用した包括的なパフォーマンス最適化を実装しています。
+
+### 1. Puma アプリケーションサーバーの最適化
+
+#### 設定内容（`config/puma.rb`）
+
+ワーカープロセス数とスレッド数を環境変数で制御可能にし、`preload_app!`によるメモリ効率化を実装しています。
+
+**推奨設定値**:
+
+- `WEB_CONCURRENCY`: 2-4（CPUコア数に応じて調整）
+- `RAILS_MAX_THREADS`: 5（IO待ちが多い場合は増やす、最大10程度）
+
+**効果**:
+
+- **preload_app!**: Copy-on-Writeによりメモリ使用量を30-50%削減
+- **workers**: 並列処理により同時リクエスト処理能力が向上（workers × threads = 最大同時処理数）
+- **threads**: IO待ち時間を有効活用し、スループット向上
+
+### 2. データベース接続プール設定
+
+`config/database.yml`では、接続プール数を`RAILS_MAX_THREADS`と同期させています。
+
+**重要**: `pool >= RAILS_MAX_THREADS`を維持しないと`ActiveRecord::ConnectionTimeoutError`が発生します。
+
+```yaml
+pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+```
+
+### 3. N+1クエリ対策
+
+#### Bullet gemによる検出（開発環境）
+
+`config/environments/development.rb`でBulletを有効化し、以下の機能を実装:
+
+- ブラウザアラート表示
+- `log/bullet.log`へのログ出力
+- ブラウザコンソールへのログ出力
+- ページ下部への検出結果表示
+
+#### 実装済みの対策
+
+すべてのコントローラーで適切に`includes()`を使用してN+1クエリを防止:
+
+- **PropertiesController**: `party`, `municipality`を事前ロード
+- **FixedAssetsController**: `depreciation_policy`を事前ロード
+- **CalculationRunsController**: `municipality`, `fiscal_year`, `calculation_results.property`を事前ロード
+
+**N+1クエリ対策のベストプラクティス**:
+
+```ruby
+# includes: 複数クエリで事前ロード（通常はこれを使用）
+Property.includes(:party, :municipality)
+
+# preload: 必ず複数クエリで事前ロード
+Property.preload(:party, :municipality)
+
+# eager_load: JOINを使って単一クエリで取得
+Property.eager_load(:party, :municipality)
+
+# joins: 関連テーブルでの条件指定のみ（データは取得しない）
+Property.joins(:party).where(parties: { type: 'Corporation' })
+```
+
+### 4. キャッシュ戦略
+
+#### Solid Cache（本番環境）
+
+DBベースのキャッシュストア（Redisなしで動作）を使用:
+
+```ruby
+config.cache_store = :solid_cache_store
+```
+
+#### フラグメントキャッシュの活用
+
+```erb
+<% cache(@property) do %>
+  <div class="property-show">
+    <%= render @property %>
+  </div>
+<% end %>
+```
+
+Active Recordモデルは`updated_at`が変更されると自動的にキャッシュキーが更新されます。
+
+### 5. Solid Queue（バックグラウンドジョブ）
+
+DBベースのジョブキュー（Redisなし）を使用:
+
+```ruby
+config.active_job.queue_adapter = :solid_queue
+config.solid_queue.connects_to = { database: { writing: :queue } }
+```
+
+**起動方法**:
+
+```bash
+# スタンドアロンで起動
+bin/jobs
+
+# Puma内で起動（単一サーバー構成の場合）
+SOLID_QUEUE_IN_PUMA=true bin/rails server
+```
+
+### 6. Kamalデプロイ設定
+
+`config/deploy.yml`で以下の環境変数を設定:
+
+```yaml
+env:
+  clear:
+    WEB_CONCURRENCY: 2          # ワーカープロセス数
+    RAILS_MAX_THREADS: 5        # スレッド数
+    SOLID_QUEUE_IN_PUMA: true   # PumaでSolid Queue実行
+```
+
+**デプロイコマンド**:
+
+```bash
+# 初回セットアップ
+bin/kamal setup
+
+# デプロイ
+bin/kamal deploy
+
+# ログ確認
+bin/kamal app logs -f
+```
+
+### 7. パフォーマンス監視
+
+#### 開発環境
+
+- **Bulletの警告**: `log/bullet.log`を確認
+- **クエリログ**: `log/development.log`でSQL実行時間を確認
+- **Server Timing**: ブラウザの開発者ツールで確認
+
+#### 本番環境
+
+- **Pumaログ**: リクエスト処理時間を監視
+- **DBスロークエリログ**: 遅いクエリを特定
+- **メモリ使用量**: ワーカープロセスのメモリ使用状況
+
+#### パフォーマンステスト
+
+```bash
+# wrkを使った負荷テスト
+wrk -t12 -c400 -d30s http://localhost:3000/api/v1/properties
+
+# Apache Benchを使った負荷テスト
+ab -n 1000 -c 10 http://localhost:3000/api/v1/properties
+```
+
+**測定指標**:
+
+- スループット（リクエスト/秒）
+- レイテンシ（平均応答時間、95パーセンタイル）
+- エラー率
+
+### 8. 今後の最適化候補
+
+#### データベース最適化
+
+1. **インデックスの追加**
+   - 外部キーカラム
+   - 頻繁に検索されるカラム（例: `status`, `category`）
+
+2. **複合インデックス**
+
+   ```ruby
+   add_index :properties, [:tenant_id, :category]
+   add_index :calculation_runs, [:tenant_id, :status, :created_at]
+   ```
+
+#### アプリケーションレベル
+
+1. **ページネーション**: 大量データの取得を避ける
+
+   ```ruby
+   properties = current_tenant.properties.page(params[:page]).per(25)
+   ```
+
+2. **カウンターキャッシュ**: 関連レコード数の高速取得
+
+   ```ruby
+   belongs_to :property, counter_cache: true
+   ```
+
+3. **バッチ処理**: 大量データの処理
+
+   ```ruby
+   Property.find_each(batch_size: 100) do |property|
+     # 処理
+   end
+   ```
+
+### トラブルシューティング
+
+#### `ActiveRecord::ConnectionTimeoutError`
+
+**原因**: DB接続プールが不足
+
+**解決策**:
+
+```yaml
+# config/database.yml
+pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+```
+
+環境変数を確認:
+
+```bash
+echo $RAILS_MAX_THREADS
+```
+
+#### メモリ使用量が多い
+
+**原因**: ワーカープロセス数が多すぎる
+
+**解決策**: `WEB_CONCURRENCY`を減らす
+
+```bash
+export WEB_CONCURRENCY=2
+```
+
+#### レスポンスが遅い
+
+**チェックリスト**:
+
+1. BulletでN+1クエリを確認
+2. `log/development.log`でスロークエリを特定
+3. `EXPLAIN`でクエリ実行計画を確認
+
+```ruby
+# Railsコンソールで実行
+Property.includes(:party).where(category: 'land').explain
+```
+
+### 参考資料
+
+- [Rails Guides: Caching](https://guides.rubyonrails.org/caching_with_rails.html)
+- [Rails Guides: Active Record Query Interface](https://guides.rubyonrails.org/active_record_querying.html)
+- [Puma Configuration](https://github.com/puma/puma#configuration)
+- [Solid Queue Documentation](https://github.com/rails/solid_queue)
+- [Kamal Documentation](https://kamal-deploy.org/)
 
 ## アーキテクチャ
 
@@ -465,6 +720,10 @@ X-Tenant-ID: {tenant_id}
 │   ├── models/             # データモデル
 │   └── services/           # ビジネスロジック
 ├── config/                 # Rails設定
+│   ├── puma.rb             # Pumaサーバー設定
+│   ├── database.yml        # DB接続設定
+│   ├── deploy.yml          # Kamalデプロイ設定
+│   └── environments/       # 環境別設定
 ├── db/                     # データベース
 │   ├── migrate/            # マイグレーション
 │   └── schema.rb           # スキーマ定義

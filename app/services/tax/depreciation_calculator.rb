@@ -56,7 +56,7 @@ module Tax
       depreciation_amount = calculate_depreciation(opening_value, previous_year)
 
       # 残存価額を下回らないように調整
-      closing_value = [opening_value - depreciation_amount, min_value].max
+      closing_value = [ opening_value - depreciation_amount, min_value ].max
 
       # 調整後の実際の償却額
       actual_depreciation = opening_value - closing_value
@@ -105,7 +105,7 @@ module Tax
       # 既に残存価額以下の場合、または max_depreciation が負の場合は償却なし
       return 0 if max_depreciation <= 0
 
-      [annual_depreciation, max_depreciation].min
+      [ annual_depreciation, max_depreciation ].min
     end
 
     def calculate_declining_balance(opening_value, previous_year)
@@ -126,7 +126,7 @@ module Tax
       return 0 if max_depreciation <= 0
 
       # 通常償却額を残存価額制限内に収める
-      normal_depreciation_limited = [depreciation, max_depreciation].min
+      normal_depreciation_limited = [ depreciation, max_depreciation ].min
 
       # 償却保証額（取得価額 × 保証率）
       guarantee_amount = @fixed_asset.acquisition_cost * guarantee_rate
@@ -139,7 +139,7 @@ module Tax
         revised_depreciation = revised_acquisition * revised_depreciation_rate
 
         # 改定償却額も残存価額制限を適用
-        revised_depreciation_limited = [revised_depreciation, max_depreciation].min
+        revised_depreciation_limited = [ revised_depreciation, max_depreciation ].min
 
         # 残存価額制限後の通常償却額と改定償却額を比較
         # 残存価額制限がかかっている場合（通常償却額が制限された場合）は、通常償却額を優先

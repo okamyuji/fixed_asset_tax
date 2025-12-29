@@ -61,7 +61,7 @@ module Tax
 
       # 最低限度額チェック
       min_valuation = acquisition_cost * MINIMUM_RATE
-      final_valuation = [valuation, min_valuation].max
+      final_valuation = [ valuation, min_valuation ].max
 
       {
         success: true,
@@ -89,7 +89,7 @@ module Tax
 
       # 最低限度額チェック
       min_valuation = acquisition_cost * MINIMUM_RATE
-      final_valuation = [valuation, min_valuation].max
+      final_valuation = [ valuation, min_valuation ].max
 
       {
         success: true,
@@ -129,7 +129,7 @@ module Tax
 
         # 最低限度額チェック
         min_valuation = acquisition_cost * MINIMUM_RATE
-        valuation = [valuation, min_valuation].max
+        valuation = [ valuation, min_valuation ].max
 
         # 最低限度額に達したら計算終了
         break if valuation <= min_valuation

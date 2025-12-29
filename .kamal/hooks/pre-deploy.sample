@@ -63,7 +63,7 @@ class GithubStatusChecks
   end
 
   def complete_count
-    combined_status[:statuses].count { |status| status[:state] != "pending"}
+    combined_status[:statuses].count { |status| status[:state] != "pending" }
   end
 
   def total_count

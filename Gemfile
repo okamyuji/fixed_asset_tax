@@ -22,7 +22,7 @@ gem "bcrypt", "~> 3.1.7"
 # JWT for API authentication
 gem "jwt"
 # Fix minitest compatibility with Rails 8.1.1
-gem "minitest", "~> 5.14"
+gem "minitest", "~> 6.0"
 
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem "tzinfo-data", platforms: %i[ windows jruby ]

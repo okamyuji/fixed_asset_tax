@@ -15,7 +15,7 @@ default: &default
   collation: utf8mb4_0900_ai_ci
   pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
   username: <%= ENV.fetch("DB_USER", "root") %>
-  password: <%= ENV.fetch("DB_PASSWORD", "") %>
+  password: <%= ENV.fetch("DB_PASSWORD", "password") %>
   host: <%= ENV.fetch("DB_HOST", "127.0.0.1") %>
 
 development:
@@ -28,6 +28,7 @@ development:
 test:
   <<: *default
   database: fixed_asset_tax_test
+  password: <%= ENV.fetch("DB_PASSWORD", "") %>
 
 production:
   primary: &primary_production

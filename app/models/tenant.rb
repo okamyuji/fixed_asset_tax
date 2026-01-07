@@ -10,6 +10,7 @@ class Tenant < ApplicationRecord
   has_many :depreciation_years, dependent: :destroy
   has_many :calculation_runs, dependent: :destroy
   has_many :calculation_results, dependent: :destroy
+  has_many :corporate_tax_schedules, dependent: :destroy
 
   validates :name, presence: true
   validates :plan, presence: true

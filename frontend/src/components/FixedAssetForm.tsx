@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { assetClassificationsApi } from "../api/assetClassifications";
 import type {
@@ -15,7 +15,7 @@ const fixedAssetSchema = z.object({
   asset_type: z.string().min(1, "資産種別を入力してください"),
   account_item: z.string().min(1, "勘定科目を選択してください"),
   asset_classification: z.enum(["tangible", "intangible", "deferred"], {
-    errorMap: () => ({ message: "資産分類を選択してください" }),
+    message: "資産分類を選択してください",
   }),
   acquired_on: z.string().min(1, "取得日を入力してください"),
   acquisition_cost: z.number().min(0, "取得価額は0以上で入力してください"),
@@ -49,13 +49,11 @@ export const FixedAssetForm = ({
 }: FixedAssetFormProps) => {
   const [classifications, setClassifications] =
     useState<AssetClassificationsResponse | null>(null);
-  const [selectedClassification, setSelectedClassification] =
-    useState<string>("tangible");
 
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     formState: { errors },
   } = useForm<FixedAssetFormData>({
     resolver: zodResolver(fixedAssetSchema),
@@ -86,8 +84,14 @@ export const FixedAssetForm = ({
         },
   });
 
-  const watchedClassification = watch("asset_classification");
-  const watchedAccountItem = watch("account_item");
+  const watchedClassification = useWatch({
+    control,
+    name: "asset_classification",
+  });
+  const watchedAccountItem = useWatch({
+    control,
+    name: "account_item",
+  });
 
   useEffect(() => {
     const loadClassifications = async () => {
@@ -100,12 +104,6 @@ export const FixedAssetForm = ({
     };
     loadClassifications();
   }, []);
-
-  useEffect(() => {
-    if (watchedClassification) {
-      setSelectedClassification(watchedClassification);
-    }
-  }, [watchedClassification]);
 
   useEffect(() => {
     const loadUsefulLife = async () => {
@@ -129,7 +127,7 @@ export const FixedAssetForm = ({
   const getAccountItemsByClassification = () => {
     if (!classifications) return [];
 
-    switch (selectedClassification) {
+    switch (watchedClassification) {
       case "tangible":
         return classifications.account_items.tangible;
       case "intangible":

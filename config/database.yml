@@ -28,6 +28,7 @@ development:
 test:
   <<: *default
   database: fixed_asset_tax_test
+  password: <%= ENV.fetch("DB_PASSWORD", "") %>
 
 production:
   primary: &primary_production

@@ -39,11 +39,32 @@ module Tax
     def call
       return failure("Depreciation policy not found") unless @policy
 
+      # 償却タイプに応じた計算
+      case @policy.depreciation_type
+      when "immediate"
+        calculate_immediate_depreciation
+      when "lump_sum"
+        calculate_lump_sum_depreciation
+      when "small_value"
+        calculate_small_value_depreciation
+      when "special"
+        calculate_special_depreciation
+      when "accelerated"
+        calculate_accelerated_depreciation
+      else
+        calculate_normal_depreciation
+      end
+    end
+
+    private
+
+    # 通常償却の計算
+    def calculate_normal_depreciation
       previous_year = find_previous_depreciation_year
-      opening_value = previous_year&.closing_book_value || @fixed_asset.acquisition_cost
+      opening_value = previous_year&.closing_book_value || acquisition_cost_for_calculation
 
       # 既に残存価額以下の場合は償却なし
-      min_value = @fixed_asset.acquisition_cost * @policy.residual_rate
+      min_value = acquisition_cost_for_calculation * @policy.residual_rate
       if opening_value <= min_value
         return {
           success: true,
@@ -69,7 +90,124 @@ module Tax
       }
     end
 
-    private
+    # 即時償却（10万円未満）
+    def calculate_immediate_depreciation
+      cost = acquisition_cost_for_calculation
+
+      {
+        success: true,
+        opening_book_value: cost,
+        depreciation_amount: cost,
+        closing_book_value: 0
+      }
+    end
+
+    # 一括償却資産（3年均等償却、10万円以上20万円未満）
+    def calculate_lump_sum_depreciation
+      cost = acquisition_cost_for_calculation
+      annual_depreciation = cost / 3.0
+
+      previous_year = find_previous_depreciation_year
+      opening_value = previous_year&.closing_book_value || cost
+
+      # 3年経過したら償却完了
+      years_elapsed = count_depreciation_years
+      if years_elapsed >= 3
+        return {
+          success: true,
+          opening_book_value: opening_value,
+          depreciation_amount: 0,
+          closing_book_value: opening_value
+        }
+      end
+
+      depreciation_amount = [ annual_depreciation, opening_value ].min
+      closing_value = opening_value - depreciation_amount
+
+      {
+        success: true,
+        opening_book_value: opening_value,
+        depreciation_amount: depreciation_amount,
+        closing_book_value: closing_value
+      }
+    end
+
+    # 少額減価償却資産（青色申告者の特例、10万円以上30万円未満）
+    def calculate_small_value_depreciation
+      cost = acquisition_cost_for_calculation
+
+      # 初年度に全額償却
+      previous_year = find_previous_depreciation_year
+      if previous_year
+        return {
+          success: true,
+          opening_book_value: 0,
+          depreciation_amount: 0,
+          closing_book_value: 0
+        }
+      end
+
+      {
+        success: true,
+        opening_book_value: cost,
+        depreciation_amount: cost,
+        closing_book_value: 0
+      }
+    end
+
+    # 特別償却（法人向け）
+    def calculate_special_depreciation
+      # 通常償却 + 特別償却
+      normal_result = calculate_normal_depreciation
+      return normal_result unless normal_result[:success]
+
+      special_amount = if @policy.special_depreciation_rate
+        acquisition_cost_for_calculation * @policy.special_depreciation_rate
+      else
+        0
+      end
+
+      total_depreciation = normal_result[:depreciation_amount] + special_amount
+      closing_value = [ normal_result[:opening_book_value] - total_depreciation, 0 ].max
+
+      {
+        success: true,
+        opening_book_value: normal_result[:opening_book_value],
+        depreciation_amount: total_depreciation,
+        closing_book_value: closing_value,
+        normal_depreciation: normal_result[:depreciation_amount],
+        special_depreciation: special_amount
+      }
+    end
+
+    # 割増償却（法人向け）
+    def calculate_accelerated_depreciation
+      # 通常償却 × (1 + 割増率)
+      normal_result = calculate_normal_depreciation
+      return normal_result unless normal_result[:success]
+
+      accelerated_rate = @policy.special_depreciation_rate || 0
+      accelerated_amount = normal_result[:depreciation_amount] * (1 + accelerated_rate)
+
+      closing_value = [ normal_result[:opening_book_value] - accelerated_amount, 0 ].max
+
+      {
+        success: true,
+        opening_book_value: normal_result[:opening_book_value],
+        depreciation_amount: accelerated_amount,
+        closing_book_value: closing_value
+      }
+    end
+
+    # 事業利用割合を考慮した取得価額
+    def acquisition_cost_for_calculation
+      @fixed_asset.business_acquisition_cost
+    end
+
+    # 償却年数をカウント
+    def count_depreciation_years
+      @fixed_asset.depreciation_years.count
+    end
 
     def find_previous_depreciation_year
       return nil unless @fiscal_year

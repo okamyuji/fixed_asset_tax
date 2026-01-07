@@ -87,11 +87,35 @@ module Api
       end
 
       def fixed_asset_params
-        params.require(:fixed_asset).permit(:name, :acquired_on, :acquisition_cost, :asset_type)
+        params.require(:fixed_asset).permit(
+          :name,
+          :acquired_on,
+          :acquisition_cost,
+          :asset_type,
+          :account_item,
+          :asset_classification,
+          :business_use_ratio,
+          :acquisition_type,
+          :service_start_date,
+          :quantity,
+          :unit,
+          :location,
+          :description
+        )
       end
 
       def depreciation_policy_params
-        params.require(:depreciation_policy).permit(:method, :useful_life_years, :residual_rate)
+        params.require(:depreciation_policy).permit(
+          :method,
+          :useful_life_years,
+          :residual_rate,
+          :depreciation_type,
+          :special_depreciation_rate,
+          :first_year_prorated,
+          :registered_method,
+          :depreciation_start_date,
+          :memo
+        )
       end
 
       def fixed_asset_response(fixed_asset)
@@ -102,6 +126,17 @@ module Api
           acquired_on: fixed_asset.acquired_on,
           acquisition_cost: fixed_asset.acquisition_cost.to_f,
           asset_type: fixed_asset.asset_type,
+          account_item: fixed_asset.account_item,
+          account_item_name: fixed_asset.account_item_name,
+          asset_classification: fixed_asset.asset_classification,
+          asset_classification_name: fixed_asset.asset_classification_name,
+          business_use_ratio: fixed_asset.business_use_ratio&.to_f,
+          acquisition_type: fixed_asset.acquisition_type,
+          service_start_date: fixed_asset.service_start_date,
+          quantity: fixed_asset.quantity,
+          unit: fixed_asset.unit,
+          location: fixed_asset.location,
+          description: fixed_asset.description,
           created_at: fixed_asset.created_at,
           updated_at: fixed_asset.updated_at
         }
@@ -110,8 +145,16 @@ module Api
           response[:depreciation_policy] = {
             id: fixed_asset.depreciation_policy.id,
             method: fixed_asset.depreciation_policy.method,
+            method_name: fixed_asset.depreciation_policy.depreciation_method_name,
             useful_life_years: fixed_asset.depreciation_policy.useful_life_years,
-            residual_rate: fixed_asset.depreciation_policy.residual_rate.to_f
+            residual_rate: fixed_asset.depreciation_policy.residual_rate.to_f,
+            depreciation_type: fixed_asset.depreciation_policy.depreciation_type,
+            depreciation_type_name: fixed_asset.depreciation_policy.depreciation_type_name,
+            special_depreciation_rate: fixed_asset.depreciation_policy.special_depreciation_rate&.to_f,
+            first_year_prorated: fixed_asset.depreciation_policy.first_year_prorated,
+            registered_method: fixed_asset.depreciation_policy.registered_method,
+            depreciation_start_date: fixed_asset.depreciation_policy.depreciation_start_date,
+            memo: fixed_asset.depreciation_policy.memo
           }
         end
 

@@ -71,10 +71,22 @@ export interface FixedAsset {
   acquired_on: string;
   acquisition_cost: number;
   asset_type: string;
+  account_item: string;
+  account_item_name: string;
+  asset_classification: 'tangible' | 'intangible' | 'deferred';
+  asset_classification_name: string;
+  business_use_ratio?: number;
+  acquisition_type?: 'new' | 'used' | 'self_constructed' | 'gift' | 'inheritance';
+  service_start_date?: string;
+  quantity?: number;
+  unit?: string;
+  location?: string;
+  description?: string;
   asset_category?: string | null;
   notes?: string | null;
   created_at: string;
   updated_at: string;
+  depreciation_policy?: DepreciationPolicyDetail;
 }
 
 export interface FixedAssetCreateRequest {
@@ -83,8 +95,18 @@ export interface FixedAssetCreateRequest {
   acquired_on: string;
   acquisition_cost: number;
   asset_type: string;
+  account_item: string;
+  asset_classification: 'tangible' | 'intangible' | 'deferred';
+  business_use_ratio?: number;
+  acquisition_type?: 'new' | 'used' | 'self_constructed' | 'gift' | 'inheritance';
+  service_start_date?: string;
+  quantity?: number;
+  unit?: string;
+  location?: string;
+  description?: string;
   asset_category?: string;
   notes?: string;
+  depreciation_policy?: DepreciationPolicyCreateRequest;
 }
 
 export interface FixedAssetUpdateRequest {
@@ -93,14 +115,60 @@ export interface FixedAssetUpdateRequest {
   acquired_on?: string;
   acquisition_cost?: number;
   asset_type?: string;
+  account_item?: string;
+  asset_classification?: 'tangible' | 'intangible' | 'deferred';
+  business_use_ratio?: number;
+  acquisition_type?: 'new' | 'used' | 'self_constructed' | 'gift' | 'inheritance';
+  service_start_date?: string;
+  quantity?: number;
+  unit?: string;
+  location?: string;
+  description?: string;
   asset_category?: string;
   notes?: string;
+  depreciation_policy?: DepreciationPolicyUpdateRequest;
 }
 
 export interface DepreciationPolicy {
-  method: 'straight_line' | 'declining_balance';
+  method: 'straight_line' | 'declining_balance' | 'declining_balance_250' | 'declining_balance_200';
   useful_life_years: number;
   residual_rate: number;
+  depreciation_type: 'normal' | 'lump_sum' | 'small_value' | 'immediate' | 'special' | 'accelerated';
+  special_depreciation_rate?: number;
+  first_year_prorated?: boolean;
+  registered_method?: string;
+  depreciation_start_date?: string;
+  memo?: string;
+}
+
+export interface DepreciationPolicyDetail extends DepreciationPolicy {
+  id: number;
+  method_name: string;
+  depreciation_type_name: string;
+}
+
+export interface DepreciationPolicyCreateRequest {
+  method: 'straight_line' | 'declining_balance' | 'declining_balance_250' | 'declining_balance_200';
+  useful_life_years: number;
+  residual_rate: number;
+  depreciation_type?: 'normal' | 'lump_sum' | 'small_value' | 'immediate' | 'special' | 'accelerated';
+  special_depreciation_rate?: number;
+  first_year_prorated?: boolean;
+  registered_method?: string;
+  depreciation_start_date?: string;
+  memo?: string;
+}
+
+export interface DepreciationPolicyUpdateRequest {
+  method?: 'straight_line' | 'declining_balance' | 'declining_balance_250' | 'declining_balance_200';
+  useful_life_years?: number;
+  residual_rate?: number;
+  depreciation_type?: 'normal' | 'lump_sum' | 'small_value' | 'immediate' | 'special' | 'accelerated';
+  special_depreciation_rate?: number;
+  first_year_prorated?: boolean;
+  registered_method?: string;
+  depreciation_start_date?: string;
+  memo?: string;
 }
 
 export interface CalculationRun {
@@ -149,4 +217,71 @@ export interface Party {
   tenant_id: number;
   type: 'Individual' | 'Corporation';
   display_name: string;
+}
+
+export interface AccountItem {
+  key: string;
+  name: string;
+  code: string;
+  useful_life_range?: {
+    min: number;
+    max: number;
+  };
+  description: string;
+}
+
+export interface AssetClassification {
+  key: string;
+  name: string;
+  code: string;
+}
+
+export interface AssetClassificationsResponse {
+  asset_classifications: AssetClassification[];
+  account_items: {
+    tangible: AccountItem[];
+    intangible: AccountItem[];
+    deferred: AccountItem[];
+  };
+  depreciation_methods: {
+    key: string;
+    name: string;
+    code: string;
+  }[];
+  depreciation_types: {
+    key: string;
+    name: string;
+    code: string;
+    threshold?: {
+      min: number;
+      max: number;
+    };
+  }[];
+  acquisition_types: {
+    key: string;
+    name: string;
+    code: string;
+  }[];
+}
+
+export interface CorporateTaxSchedule {
+  id: number;
+  fiscal_year_id: number;
+  fiscal_year: number;
+  schedule_type: 'schedule_16_1' | 'schedule_16_2' | 'schedule_16_6' | 'schedule_16_7';
+  schedule_type_name: string;
+  data_json: Record<string, unknown>;
+  status: 'draft' | 'finalized';
+  notes?: string;
+  finalized_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CorporateTaxScheduleCreateRequest {
+  fiscal_year_id: number;
+  schedule_type: 'schedule_16_1' | 'schedule_16_2' | 'schedule_16_6' | 'schedule_16_7';
+  data_json?: Record<string, unknown>;
+  status?: 'draft' | 'finalized';
+  notes?: string;
 }

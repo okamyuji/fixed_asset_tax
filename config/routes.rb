@@ -49,6 +49,26 @@ Rails.application.routes.draw do
         end
         resources :calculation_results, only: [ :index ]
       end
+
+      # Asset Classifications (勘定科目・資産分類マスタ)
+      resources :asset_classifications, only: [ :index ] do
+        collection do
+          get :account_items
+          get :useful_life
+        end
+      end
+
+      # Corporate Tax Schedules (法人別表十六)
+      resources :corporate_tax_schedules do
+        member do
+          post :generate
+          post :finalize
+          get :export_csv
+        end
+        collection do
+          post :generate_all
+        end
+      end
     end
   end
 

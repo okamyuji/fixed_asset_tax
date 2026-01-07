@@ -128,6 +128,34 @@ test.describe('固定資産CRUD', () => {
     });
 
     test('新規固定資産を作成できる（モック）', async ({ page }) => {
+        // 資産分類APIをモック
+        await page.route('**/api/v1/asset_classifications', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    asset_classifications: [
+                        { key: 'tangible', name: '有形固定資産', code: '1' },
+                        { key: 'intangible', name: '無形固定資産', code: '2' },
+                        { key: 'deferred', name: '繰延資産', code: '3' }
+                    ],
+                    account_items: {
+                        tangible: [
+                            { key: 'machinery', name: '機械装置', code: '104', useful_life_range: { min: 2, max: 22 }, description: '製造設備等' },
+                            { key: 'tools_furniture_fixtures', name: '工具器具備品', code: '106', useful_life_range: { min: 2, max: 20 }, description: 'パソコン等' }
+                        ],
+                        intangible: [],
+                        deferred: []
+                    },
+                    depreciation_methods: [],
+                    depreciation_types: [],
+                    acquisition_types: [
+                        { key: 'new', name: '新品', code: '1' }
+                    ]
+                })
+            });
+        });
+        
         await page.route('**/api/v1/fixed_assets*', async (route) => {
             if (route.request().method() === 'GET') {
                 await route.fulfill({
@@ -161,11 +189,12 @@ test.describe('固定資産CRUD', () => {
         // フォームに入力
         await page.getByLabel('資産ID').fill('1');
         await page.getByLabel('資産名').fill('新規テスト固定資産');
+        await page.getByLabel('資産分類').selectOption('tangible');
+        await page.getByLabel('勘定科目').selectOption('machinery');
         await page.getByLabel('資産種別').fill('機械装置');
         await page.getByLabel('取得日').fill('2025-01-01');
         await page.getByLabel('取得価額').fill('2000000');
-        await page.getByLabel('資産カテゴリ').fill('カテゴリA');
-        await page.getByLabel('備考').fill('テスト備考');
+        await page.getByLabel('説明').fill('テスト説明');
         
         // 保存ボタンをクリック
         await page.getByRole('button', { name: '保存' }).click();
@@ -232,6 +261,34 @@ test.describe('固定資産CRUD', () => {
     });
 
     test('固定資産を編集できる（モック）', async ({ page }) => {
+        // 資産分類APIをモック
+        await page.route('**/api/v1/asset_classifications', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    asset_classifications: [
+                        { key: 'tangible', name: '有形固定資産', code: '1' },
+                        { key: 'intangible', name: '無形固定資産', code: '2' },
+                        { key: 'deferred', name: '繰延資産', code: '3' }
+                    ],
+                    account_items: {
+                        tangible: [
+                            { key: 'machinery', name: '機械装置', code: '104', useful_life_range: { min: 2, max: 22 }, description: '製造設備等' },
+                            { key: 'tools_furniture_fixtures', name: '工具器具備品', code: '106', useful_life_range: { min: 2, max: 20 }, description: 'パソコン等' }
+                        ],
+                        intangible: [],
+                        deferred: []
+                    },
+                    depreciation_methods: [],
+                    depreciation_types: [],
+                    acquisition_types: [
+                        { key: 'new', name: '新品', code: '1' }
+                    ]
+                })
+            });
+        });
+        
         // 詳細APIをモック
         await page.route('**/api/v1/fixed_assets/1*', async (route) => {
             if (route.request().method() === 'GET') {
@@ -252,7 +309,7 @@ test.describe('固定資産CRUD', () => {
                         updated_at: '2025-01-01T00:00:00Z',
                     }),
                 });
-            } else if (route.request().method() === 'PUT') {
+            } else if (route.request().method() === 'PATCH' || route.request().method() === 'PUT') {
                 await route.fulfill({
                     status: 200,
                     contentType: 'application/json',
@@ -284,13 +341,9 @@ test.describe('固定資産CRUD', () => {
         await page.goto('/frontend/fixed-assets/1/edit');
         
         // フォームを編集
-        await page.getByLabel('資産ID').fill('2');
         await page.getByLabel('資産名').fill('更新されたテスト固定資産');
-        await page.getByLabel('資産種別').fill('工具器具備品');
-        await page.getByLabel('取得日').fill('2024-06-01');
         await page.getByLabel('取得価額').fill('1500000');
-        await page.getByLabel('資産カテゴリ').fill('カテゴリB');
-        await page.getByLabel('備考').fill('更新されました');
+        await page.getByLabel('説明').fill('更新されました');
         
         // 保存ボタンをクリック
         await page.getByRole('button', { name: '保存' }).click();

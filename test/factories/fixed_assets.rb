@@ -6,5 +6,7 @@ FactoryBot.define do
     acquired_on { Date.new(2020, 1, 1) }
     acquisition_cost { 1_000_000 }
     asset_type { "machinery" }
+    account_item { "machinery_equipment" }
+    asset_classification { "tangible" }
   end
 end

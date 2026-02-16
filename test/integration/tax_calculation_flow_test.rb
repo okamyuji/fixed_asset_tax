@@ -87,7 +87,9 @@ class TaxCalculationFlowTest < ActiveSupport::TestCase
       name: "製造機械",
       acquired_on: Date.new(2020, 1, 1),
       acquisition_cost: 10_000_000,
-      asset_type: "machinery"
+      asset_type: "machinery",
+      account_item: "machinery_equipment",
+      asset_classification: "tangible"
     )
 
     # 3. 減価償却ポリシーを作成

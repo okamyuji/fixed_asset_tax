@@ -60,14 +60,39 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_15_235812) do
     t.index ["tenant_id"], name: "index_calculation_runs_on_tenant_id"
   end
 
+  create_table "corporate_tax_schedules", charset: "utf8mb4", collation: "utf8mb4_0900_ai_ci", force: :cascade do |t|
+    t.bigint "tenant_id", null: false
+    t.bigint "fiscal_year_id", null: false
+    t.string "schedule_type", null: false
+    t.json "data_json"
+    t.string "status", default: "draft", null: false
+    t.text "notes"
+    t.datetime "finalized_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["tenant_id", "fiscal_year_id", "schedule_type"], name: "idx_corp_tax_schedules_unique", unique: true
+    t.index ["status"], name: "index_corporate_tax_schedules_on_status"
+    t.index ["schedule_type"], name: "index_corporate_tax_schedules_on_schedule_type"
+    t.index ["tenant_id"], name: "index_corporate_tax_schedules_on_tenant_id"
+    t.index ["fiscal_year_id"], name: "index_corporate_tax_schedules_on_fiscal_year_id"
+  end
+
   create_table "depreciation_policies", charset: "utf8mb4", collation: "utf8mb4_0900_ai_ci", force: :cascade do |t|
     t.datetime "created_at", null: false
+    t.string "depreciation_start_date"
+    t.string "depreciation_type", default: "normal"
+    t.boolean "first_year_prorated", default: true
     t.bigint "fixed_asset_id", null: false
+    t.text "memo"
     t.string "method", default: "straight_line", null: false
+    t.string "registered_method"
     t.decimal "residual_rate", precision: 6, scale: 5, default: "0.0", null: false
+    t.decimal "special_depreciation_rate", precision: 5, scale: 4
     t.bigint "tenant_id", null: false
     t.datetime "updated_at", null: false
     t.integer "useful_life_years", null: false
+    t.index ["depreciation_start_date"], name: "index_depreciation_policies_on_depreciation_start_date"
+    t.index ["depreciation_type"], name: "index_depreciation_policies_on_depreciation_type"
     t.index ["fixed_asset_id"], name: "index_depreciation_policies_on_fixed_asset_id"
     t.index ["tenant_id", "fixed_asset_id"], name: "index_depreciation_policies_on_tenant_id_and_fixed_asset_id", unique: true
     t.index ["tenant_id"], name: "index_depreciation_policies_on_tenant_id"
@@ -98,15 +123,27 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_15_235812) do
   end
 
   create_table "fixed_assets", charset: "utf8mb4", collation: "utf8mb4_0900_ai_ci", force: :cascade do |t|
+    t.string "account_item"
     t.date "acquired_on", null: false
     t.decimal "acquisition_cost", precision: 15, scale: 2, null: false
+    t.string "acquisition_type", default: "new"
+    t.string "asset_classification"
     t.string "asset_type", null: false
+    t.decimal "business_use_ratio", precision: 5, scale: 4, default: "1.0"
     t.datetime "created_at", null: false
+    t.text "description"
+    t.string "location"
     t.string "name", null: false
     t.bigint "property_id", null: false
+    t.integer "quantity", default: 1
+    t.date "service_start_date"
     t.bigint "tenant_id", null: false
+    t.string "unit"
     t.datetime "updated_at", null: false
+    t.index ["account_item"], name: "index_fixed_assets_on_account_item"
+    t.index ["asset_classification"], name: "index_fixed_assets_on_asset_classification"
     t.index ["property_id"], name: "index_fixed_assets_on_property_id"
+    t.index ["service_start_date"], name: "index_fixed_assets_on_service_start_date"
     t.index ["tenant_id", "acquired_on"], name: "index_fixed_assets_on_tenant_id_and_acquired_on"
     t.index ["tenant_id", "property_id"], name: "index_fixed_assets_on_tenant_id_and_property_id"
     t.index ["tenant_id"], name: "index_fixed_assets_on_tenant_id"
@@ -188,6 +225,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_15_235812) do
     t.index ["email"], name: "index_users_on_email", unique: true
   end
 
+  add_foreign_key "corporate_tax_schedules", "fiscal_years"
+  add_foreign_key "corporate_tax_schedules", "tenants"
   add_foreign_key "asset_valuations", "fiscal_years"
   add_foreign_key "asset_valuations", "municipalities"
   add_foreign_key "asset_valuations", "properties"

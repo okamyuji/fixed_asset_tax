@@ -1,25 +1,8 @@
 module Tax
   # 固定資産税評価上の減価計算
   # 会計上の減価償却とは別の、固定資産税評価額を算出するための計算
+  # 減価率は旧定率法の償却率を使用（地方税法）
   class FixedAssetTaxValuationCalculator
-    # 固定資産税評価用の減価率テーブル（耐用年数別）
-    # 旧定率法の減価率を使用
-    DEPRECIATION_RATES = {
-      2 => 0.684,
-      3 => 0.536,
-      4 => 0.438,
-      5 => 0.369,
-      6 => 0.319,
-      7 => 0.280,
-      8 => 0.250,
-      9 => 0.226,
-      10 => 0.206,
-      15 => 0.142,
-      20 => 0.109,
-      25 => 0.088,
-      30 => 0.074
-    }.freeze
-
     # 最低限度率（取得価額の5%）
     MINIMUM_RATE = 0.05
 
@@ -32,25 +15,34 @@ module Tax
       return failure("Fixed asset not found") unless @fixed_asset
       return failure("Fiscal year not found") unless @fiscal_year
 
-      # 取得年を計算
-      acquired_year = @fixed_asset.acquired_on.year
+      first_year = first_assessment_year
       current_year = @fiscal_year.year
-      years_elapsed = current_year - acquired_year
+      years_elapsed = current_year - first_year
 
       if years_elapsed < 0
         return failure("Fiscal year is before acquisition date")
       end
 
       if years_elapsed == 0
-        # 初年度: 半年償却
         calculate_first_year_valuation
       else
-        # 2年目以降: 前年度評価額 × (1 - 減価率)
         calculate_subsequent_year_valuation(years_elapsed)
       end
     end
 
     private
+
+    # 初回賦課年度を求める
+    # 賦課期日は1月1日。前年中に取得した資産が初年度の対象。
+    # 1月1日取得はその年の賦課期日に所有 → 同年が初年度。
+    def first_assessment_year
+      acquired_on = @fixed_asset.acquired_on
+      if acquired_on.month == 1 && acquired_on.day == 1
+        acquired_on.year
+      else
+        acquired_on.year + 1
+      end
+    end
 
     def calculate_first_year_valuation
       rate = depreciation_rate
@@ -61,7 +53,7 @@ module Tax
 
       # 最低限度額チェック
       min_valuation = acquisition_cost * MINIMUM_RATE
-      final_valuation = [ valuation, min_valuation ].max
+      final_valuation = [valuation, min_valuation].max
 
       {
         success: true,
@@ -73,11 +65,9 @@ module Tax
     end
 
     def calculate_subsequent_year_valuation(years_elapsed)
-      # 前年度の評価額を取得
       previous_valuation = get_previous_valuation
 
       unless previous_valuation
-        # 前年度の評価額がない場合は、遡って計算
         previous_valuation = calculate_valuation_retroactively(years_elapsed - 1)
       end
 
@@ -89,7 +79,7 @@ module Tax
 
       # 最低限度額チェック
       min_valuation = acquisition_cost * MINIMUM_RATE
-      final_valuation = [ valuation, min_valuation ].max
+      final_valuation = [valuation, min_valuation].max
 
       {
         success: true,
@@ -101,7 +91,6 @@ module Tax
       }
     end
 
-    # 前年度の評価額を取得（asset_valuationsテーブルから）
     def get_previous_valuation
       previous_fiscal_year = FiscalYear.where("year < ?", @fiscal_year.year).order(year: :desc).first
       return nil unless previous_fiscal_year
@@ -115,7 +104,6 @@ module Tax
       valuation&.assessed_value
     end
 
-    # 評価額を遡って計算（前年度のデータがない場合）
     def calculate_valuation_retroactively(target_years_elapsed)
       acquisition_cost = @fixed_asset.acquisition_cost
       rate = depreciation_rate
@@ -127,11 +115,9 @@ module Tax
       (target_years_elapsed).times do
         valuation = valuation * (1 - rate)
 
-        # 最低限度額チェック
         min_valuation = acquisition_cost * MINIMUM_RATE
-        valuation = [ valuation, min_valuation ].max
+        valuation = [valuation, min_valuation].max
 
-        # 最低限度額に達したら計算終了
         break if valuation <= min_valuation
       end
 
@@ -139,48 +125,17 @@ module Tax
     end
 
     # 固定資産税評価用の減価率を取得
+    # 旧定率法の償却率テーブル（全2-52年網羅）を使用
     def depreciation_rate
-      # depreciation_policyから耐用年数を取得
       useful_life = @fixed_asset.depreciation_policy&.useful_life_years
-
-      # 耐用年数が設定されていない場合は、デフォルト値を使用
       useful_life ||= estimate_useful_life
 
-      # テーブルに存在する場合はそれを使用
-      return DEPRECIATION_RATES[useful_life] if DEPRECIATION_RATES[useful_life]
-
-      # テーブルにない場合は、近い値を補間
-      interpolate_depreciation_rate(useful_life)
+      rate = DepreciationRates::OLD_DECLINING_BALANCE_RATES[useful_life]
+      rate || DepreciationRates::OLD_DECLINING_BALANCE_RATES[estimate_useful_life]
     end
 
-    # 耐用年数を推定
     def estimate_useful_life
-      # depreciation_policyがない場合のデフォルト耐用年数
-      # 実際には資産の種類に応じて適切な耐用年数を設定する必要がある
-      10 # デフォルト: 10年
-    end
-
-    # 減価率を補間
-    def interpolate_depreciation_rate(useful_life)
-      # テーブルから最も近い2つの値を見つけて線形補間
-      sorted_lives = DEPRECIATION_RATES.keys.sort
-      lower = sorted_lives.select { |l| l <= useful_life }.last
-      upper = sorted_lives.select { |l| l >= useful_life }.first
-
-      return DEPRECIATION_RATES[useful_life] if lower == upper
-
-      if lower.nil?
-        return DEPRECIATION_RATES[upper]
-      elsif upper.nil?
-        return DEPRECIATION_RATES[lower]
-      end
-
-      # 線形補間
-      rate_lower = DEPRECIATION_RATES[lower]
-      rate_upper = DEPRECIATION_RATES[upper]
-
-      ratio = (useful_life - lower).to_f / (upper - lower)
-      rate_lower + (rate_upper - rate_lower) * ratio
+      10
     end
 
     def failure(message)

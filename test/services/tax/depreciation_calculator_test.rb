@@ -13,402 +13,319 @@ module Tax
         acquisition_cost: 1_000_000,
         acquired_on: Date.new(2020, 1, 1)
       )
-      @policy = create(:depreciation_policy,
-        tenant: @tenant,
-        fixed_asset: @fixed_asset,
-        useful_life_years: 10,
-        residual_rate: 0.1
-      )
-      @policy.update_column(:method, "straight_line")
       @fiscal_year = create(:fiscal_year, year: 2025)
     end
 
-    # ==================== 定額法のテスト ====================
+    private
 
-    test "calculates straight line depreciation for first year" do
-      calculator = DepreciationCalculator.new(
+    def create_policy_with_method(method, useful_life: 10)
+      policy = create(:depreciation_policy,
+        tenant: @tenant,
         fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
+        useful_life_years: useful_life,
+        residual_rate: 0.0
       )
+      policy.update_column(:method, method)
+      policy
+    end
 
-      result = calculator.call
+    def create_previous_year(year:, opening:, depreciation:, closing:)
+      fy = FiscalYear.find_by(year: year) || create(:fiscal_year, year: year)
+      create(:depreciation_year,
+        tenant: @tenant,
+        fixed_asset: @fixed_asset,
+        fiscal_year: fy,
+        opening_book_value: opening,
+        depreciation_amount: depreciation,
+        closing_book_value: closing
+      )
+    end
 
+    def calculate
+      DepreciationCalculator.new(fixed_asset: @fixed_asset.reload, fiscal_year: @fiscal_year).call
+    end
+
+    public
+
+    # ==================== 旧定額法 ====================
+
+    test "old_straight_line: first year calculates correctly" do
+      create_policy_with_method("old_straight_line")
+      result = calculate
       assert result[:success]
       assert_equal 1_000_000, result[:opening_book_value]
-      # (1,000,000 * (1 - 0.1)) / 10 = 90,000
+      # base = 1,000,000 * 0.9 = 900,000
+      # rate = 0.100, annual = 90,000
       assert_equal 90_000, result[:depreciation_amount]
       assert_equal 910_000, result[:closing_book_value]
     end
 
-    test "straight line depreciation uses previous year closing value" do
-      previous_year = create(:fiscal_year, year: 2024)
-      create(:depreciation_year,
-        tenant: @tenant,
-        fixed_asset: @fixed_asset,
-        fiscal_year: previous_year,
-        opening_book_value: 1_000_000,
-        depreciation_amount: 90_000,
-        closing_book_value: 910_000
-      )
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
+    test "old_straight_line: clamped at 5% threshold" do
+      create_policy_with_method("old_straight_line")
+      # opening=60,000 > threshold=50,000
+      # annual = 90,000, but clamped to 60,000-50,000 = 10,000
+      create_previous_year(year: 2024, opening: 140_000, depreciation: 80_000, closing: 60_000)
+      result = calculate
       assert result[:success]
-      assert_equal 910_000, result[:opening_book_value]
-      assert_equal 90_000, result[:depreciation_amount]
-      assert_equal 820_000, result[:closing_book_value]
-    end
-
-    test "straight line depreciation respects residual value limit" do
-      # 残存価額近くまで償却済み
-      previous_year = create(:fiscal_year, year: 2024)
-      create(:depreciation_year,
-        tenant: @tenant,
-        fixed_asset: @fixed_asset,
-        fiscal_year: previous_year,
-        opening_book_value: 150_000,
-        depreciation_amount: 90_000,
-        closing_book_value: 110_000
-      )
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
-      assert result[:success]
-      assert_equal 110_000, result[:opening_book_value]
-      # 残存価額 = 1,000,000 * 0.1 = 100,000
-      # 償却可能額 = 110,000 - 100,000 = 10,000（90,000より小さい）
+      assert_equal 60_000, result[:opening_book_value]
       assert_equal 10_000, result[:depreciation_amount]
-      assert_equal 100_000, result[:closing_book_value]
+      assert_equal 50_000, result[:closing_book_value]
     end
 
-    test "straight line depreciation with zero residual rate" do
-      @policy.update!(residual_rate: 0.0)
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
+    test "old_straight_line: kintoushoukyaku phase" do
+      create_policy_with_method("old_straight_line")
+      # opening=50,000 = threshold, so enters kintoushoukyaku
+      create_previous_year(year: 2024, opening: 60_000, depreciation: 10_000, closing: 50_000)
+      result = calculate
       assert result[:success]
-      # (1,000,000 * (1 - 0.0)) / 10 = 100,000
+      assert_equal 50_000, result[:opening_book_value]
+      # kintoushoukyaku: (50,000 - 1) / 5 = 9,999.8
+      assert_in_delta 9_999.8, result[:depreciation_amount], 0.01
+      assert_in_delta 40_000.2, result[:closing_book_value], 0.01
+    end
+
+    test "old_straight_line: last kintoushoukyaku year reaches 1 yen" do
+      create_policy_with_method("old_straight_line")
+      # opening = 9,999.8 (in last year of kintoushoukyaku)
+      create_previous_year(year: 2024, opening: 19_999.6, depreciation: 9_999.8, closing: 9_999.8)
+      result = calculate
+      assert result[:success]
+      assert_in_delta 9_999.8, result[:opening_book_value], 0.01
+      # kintoushoukyaku = 9,999.8, but opening - 1 = 9,998.8, clamped
+      assert_in_delta 9_998.8, result[:depreciation_amount], 0.01
+      assert_equal 1, result[:closing_book_value]
+    end
+
+    # ==================== 旧定率法 ====================
+
+    test "old_declining_balance: first year" do
+      create_policy_with_method("old_declining_balance")
+      result = calculate
+      assert result[:success]
+      # rate = 0.206
+      # annual = 1,000,000 * 0.206 = 206,000
+      assert_equal 206_000, result[:depreciation_amount]
+      assert_equal 794_000, result[:closing_book_value]
+    end
+
+    test "old_declining_balance: second year" do
+      create_policy_with_method("old_declining_balance")
+      create_previous_year(year: 2024, opening: 1_000_000, depreciation: 206_000, closing: 794_000)
+      result = calculate
+      assert result[:success]
+      assert_equal 794_000, result[:opening_book_value]
+      # annual = 794,000 * 0.206 = 163,564
+      assert_in_delta 163_564, result[:depreciation_amount], 1
+    end
+
+    test "old_declining_balance: clamped at 5% threshold" do
+      create_policy_with_method("old_declining_balance")
+      # opening = 55,000, threshold = 50,000
+      # annual = 55,000 * 0.206 = 11,330, but clamped to 55,000 - 50,000 = 5,000
+      create_previous_year(year: 2024, opening: 100_000, depreciation: 45_000, closing: 55_000)
+      result = calculate
+      assert result[:success]
+      assert_equal 55_000, result[:opening_book_value]
+      assert_equal 5_000, result[:depreciation_amount]
+      assert_equal 50_000, result[:closing_book_value]
+    end
+
+    test "old_declining_balance: kintoushoukyaku phase" do
+      create_policy_with_method("old_declining_balance")
+      create_previous_year(year: 2024, opening: 55_000, depreciation: 5_000, closing: 50_000)
+      result = calculate
+      assert result[:success]
+      assert_in_delta 9_999.8, result[:depreciation_amount], 0.01
+    end
+
+    # ==================== 定額法 (新) ====================
+
+    test "straight_line: first year" do
+      create_policy_with_method("straight_line")
+      result = calculate
+      assert result[:success]
+      # rate = 0.100, annual = 100,000
       assert_equal 100_000, result[:depreciation_amount]
       assert_equal 900_000, result[:closing_book_value]
     end
 
-    # ==================== 定率法のテスト（200%定率法） ====================
-
-    test "calculates 200% declining balance depreciation for first year" do
-      @policy.update_column(:method, "declining_balance_200")
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
+    test "straight_line: uses previous year closing value" do
+      create_policy_with_method("straight_line")
+      create_previous_year(year: 2024, opening: 1_000_000, depreciation: 100_000, closing: 900_000)
+      result = calculate
       assert result[:success]
-      assert_equal 1_000_000, result[:opening_book_value]
-      # 償却率 = 1/10 * 2 = 0.2
-      # 償却額 = 1,000,000 * 0.2 = 200,000
+      assert_equal 900_000, result[:opening_book_value]
+      assert_equal 100_000, result[:depreciation_amount]
+      assert_equal 800_000, result[:closing_book_value]
+    end
+
+    test "straight_line: clamped to 1 yen minimum" do
+      create_policy_with_method("straight_line")
+      # opening = 50,000, annual = 100,000, clamped to 50,000 - 1 = 49,999
+      create_previous_year(year: 2024, opening: 100_001, depreciation: 50_001, closing: 50_000)
+      result = calculate
+      assert result[:success]
+      assert_equal 49_999, result[:depreciation_amount]
+      assert_equal 1, result[:closing_book_value]
+    end
+
+    test "straight_line: already at 1 yen" do
+      create_policy_with_method("straight_line")
+      create_previous_year(year: 2024, opening: 49_999, depreciation: 49_998, closing: 1)
+      result = calculate
+      assert result[:success]
+      assert_equal 1, result[:opening_book_value]
+      assert_equal 0, result[:depreciation_amount]
+      assert_equal 1, result[:closing_book_value]
+    end
+
+    test "straight_line: different useful life (5 years)" do
+      create_policy_with_method("straight_line", useful_life: 5)
+      result = calculate
+      assert result[:success]
+      # rate = 0.200, annual = 200,000
+      assert_equal 200_000, result[:depreciation_amount]
+    end
+
+    # ==================== 250%定率法 ====================
+
+    test "declining_balance_250: first year" do
+      create_policy_with_method("declining_balance_250")
+      result = calculate
+      assert result[:success]
+      # rate = 0.250, annual = 250,000
+      assert_equal 250_000, result[:depreciation_amount]
+      assert_equal 750_000, result[:closing_book_value]
+    end
+
+    test "declining_balance_250: switches to revised rate when below guarantee" do
+      create_policy_with_method("declining_balance_250")
+      # For useful_life=10: rate=0.250, guarantee_rate=0.04448, revised_rate=0.334
+      # guarantee_amount = 1,000,000 * 0.04448 = 44,480
+      # Need opening where opening * 0.250 < 44,480 -> opening < 177,920
+      # Previous year: opening=200,000 * 0.250 = 50,000 >= 44,480 (still normal)
+      # Current year: opening=150,000 * 0.250 = 37,500 < 44,480 (switches)
+      create_previous_year(year: 2024, opening: 200_000, depreciation: 50_000, closing: 150_000)
+      result = calculate
+      assert result[:success]
+      assert_equal 150_000, result[:opening_book_value]
+      # revised_acquisition = 150,000 (first year below guarantee)
+      # revised_depreciation = 150,000 * 0.334 = 50,100
+      assert_in_delta 50_100, result[:depreciation_amount], 1
+    end
+
+    # ==================== 200%定率法 ====================
+
+    test "declining_balance_200: first year" do
+      create_policy_with_method("declining_balance_200")
+      result = calculate
+      assert result[:success]
+      # rate = 0.200
       assert_equal 200_000, result[:depreciation_amount]
       assert_equal 800_000, result[:closing_book_value]
     end
 
-    test "200% declining balance depreciation for second year" do
-      @policy.update_column(:method, "declining_balance_200")
-
-      previous_year = create(:fiscal_year, year: 2024)
-      create(:depreciation_year,
-        tenant: @tenant,
-        fixed_asset: @fixed_asset,
-        fiscal_year: previous_year,
-        opening_book_value: 1_000_000,
-        depreciation_amount: 200_000,
-        closing_book_value: 800_000
-      )
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
+    test "declining_balance_200: second year" do
+      create_policy_with_method("declining_balance_200")
+      create_previous_year(year: 2024, opening: 1_000_000, depreciation: 200_000, closing: 800_000)
+      result = calculate
       assert result[:success]
       assert_equal 800_000, result[:opening_book_value]
-      # 償却額 = 800,000 * 0.2 = 160,000
+      # annual = 800,000 * 0.200 = 160,000
       assert_equal 160_000, result[:depreciation_amount]
-      assert_equal 640_000, result[:closing_book_value]
     end
 
-    test "200% declining balance switches to revised rate when below guarantee" do
-      @policy.update_column(:method, "declining_balance_200")
-
-      # 6年目: 償却保証額を下回る年
-      # 期首帳簿価額: 262,144
-      # 通常償却額: 262,144 * 0.2 = 52,428.8
-      # 償却保証額: 1,000,000 * 0.11430 = 114,300
-      # 52,428.8 < 114,300 なので改定償却率に切り替え
-      # 改定償却額 = 262,144 * 0.100 = 26,214.4
-
-      previous_year = create(:fiscal_year, year: 2024)
-      create(:depreciation_year,
-        tenant: @tenant,
-        fixed_asset: @fixed_asset,
-        fiscal_year: previous_year,
-        opening_book_value: 262_144,
-        depreciation_amount: 52_429, # 通常償却
-        closing_book_value: 209_715
-      )
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
+    test "declining_balance_200: switches to revised rate" do
+      create_policy_with_method("declining_balance_200")
+      # guarantee_rate = 0.06552, guarantee_amount = 65,520
+      # Need opening where opening * 0.200 < 65,520 -> opening < 327,600
+      # Previous: 350,000 * 0.200 = 70,000 >= 65,520 (normal)
+      # Current: 280,000 * 0.200 = 56,000 < 65,520 (switches)
+      create_previous_year(year: 2024, opening: 350_000, depreciation: 70_000, closing: 280_000)
+      result = calculate
       assert result[:success]
-      assert_equal 209_715, result[:opening_book_value]
-      # 改定償却率 0.100 を使用（耐用年数10年）
-      # 改定取得価額 262,144（切り替わった年の期首）
-      # 償却額 = 262,144 * 0.100 = 26,214.4 ≒ 26,214
-      assert_in_delta 26_214, result[:depreciation_amount], 100
+      assert_equal 280_000, result[:opening_book_value]
+      # revised_acquisition = 280,000
+      # revised_depreciation = 280,000 * 0.250 = 70,000
+      assert_equal 70_000, result[:depreciation_amount]
     end
 
-    test "200% declining balance respects residual value limit" do
-      @policy.update_column(:method, "declining_balance_200")
-
-      # 残存価額近くまで償却済み
-      previous_year = create(:fiscal_year, year: 2024)
-      create(:depreciation_year,
-        tenant: @tenant,
-        fixed_asset: @fixed_asset,
-        fiscal_year: previous_year,
-        opening_book_value: 150_000,
-        depreciation_amount: 30_000,
-        closing_book_value: 120_000
-      )
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
+    test "declining_balance_200: different useful life (5 years)" do
+      create_policy_with_method("declining_balance_200", useful_life: 5)
+      result = calculate
       assert result[:success]
-      assert_equal 120_000, result[:opening_book_value]
-      # 通常償却額 = 120,000 * 0.2 = 24,000
-      # 残存価額 = 1,000,000 * 0.1 = 100,000
-      # 償却可能額 = 120,000 - 100,000 = 20,000（24,000より小さい）
-      assert_equal 20_000, result[:depreciation_amount]
-      assert_equal 100_000, result[:closing_book_value]
-    end
-
-    test "declining balance with different useful life years" do
-      @policy.update!(method: "declining_balance_200", useful_life_years: 5)
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
-      assert result[:success]
-      # 償却率 = 1/5 * 2 = 0.4
-      # 償却額 = 1,000,000 * 0.4 = 400,000
+      # rate = 0.400
       assert_equal 400_000, result[:depreciation_amount]
-      assert_equal 600_000, result[:closing_book_value]
     end
 
-    # ==================== エッジケースと境界値テスト ====================
-
-    test "handles zero opening value" do
-      previous_year = create(:fiscal_year, year: 2024)
-      create(:depreciation_year,
-        tenant: @tenant,
-        fixed_asset: @fixed_asset,
-        fiscal_year: previous_year,
-        opening_book_value: 0,
-        depreciation_amount: 0,
-        closing_book_value: 0
-      )
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
+    test "declining_balance_200: useful life 2 (no guarantee)" do
+      create_policy_with_method("declining_balance_200", useful_life: 2)
+      result = calculate
       assert result[:success]
-      assert_equal 0, result[:opening_book_value]
-      assert_equal 0, result[:depreciation_amount]
+      # rate = 1.000
+      # annual = 1,000,000, clamped to 1,000,000 - 1 = 999,999
+      assert_equal 999_999, result[:depreciation_amount]
+      assert_equal 1, result[:closing_book_value]
+    end
+
+    # ==================== 特殊償却タイプ ====================
+
+    test "immediate depreciation" do
+      policy = create_policy_with_method("straight_line")
+      policy.update_column(:depreciation_type, "immediate")
+      result = calculate
+      assert result[:success]
+      assert_equal 1_000_000, result[:depreciation_amount]
       assert_equal 0, result[:closing_book_value]
     end
 
-    test "handles very small acquisition cost" do
-      @fixed_asset.update!(acquisition_cost: 100)
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
+    test "lump sum depreciation" do
+      policy = create_policy_with_method("straight_line")
+      policy.update_column(:depreciation_type, "lump_sum")
+      result = calculate
       assert result[:success]
-      # (100 * (1 - 0.1)) / 10 = 9
-      assert_equal 9, result[:depreciation_amount]
+      assert_in_delta 333_333.33, result[:depreciation_amount], 1
     end
 
-    test "handles very large acquisition cost" do
-      @fixed_asset.update!(acquisition_cost: 1_000_000_000)
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
+    test "small value depreciation" do
+      policy = create_policy_with_method("straight_line")
+      policy.update_column(:depreciation_type, "small_value")
+      result = calculate
       assert result[:success]
-      # (1,000,000,000 * (1 - 0.1)) / 10 = 90,000,000
-      assert_equal 90_000_000, result[:depreciation_amount]
+      assert_equal 1_000_000, result[:depreciation_amount]
+      assert_equal 0, result[:closing_book_value]
     end
 
-    test "handles useful life of 1 year" do
-      @policy.update!(useful_life_years: 1)
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
-      assert result[:success]
-      # (1,000,000 * (1 - 0.1)) / 1 = 900,000
-      assert_equal 900_000, result[:depreciation_amount]
-      assert_equal 100_000, result[:closing_book_value]
-    end
-
-    test "handles useful life of 20 years" do
-      @policy.update!(useful_life_years: 20)
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
-      assert result[:success]
-      # (1,000,000 * (1 - 0.1)) / 20 = 45,000
-      assert_equal 45_000, result[:depreciation_amount]
-    end
-
-    # ==================== 異常系テスト ====================
+    # ==================== エッジケース ====================
 
     test "returns error when policy not found" do
-      @policy.destroy
-      @fixed_asset.reload
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
+      @fixed_asset.depreciation_policy&.destroy
+      result = calculate
       assert_equal false, result[:success]
       assert_equal "Depreciation policy not found", result[:error]
     end
 
-    test "handles unknown depreciation method" do
-      @policy.update_column(:method, "unknown_method")
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      result = calculator.call
-
+    test "unknown depreciation method returns 0" do
+      create_policy_with_method("straight_line")
+      @fixed_asset.depreciation_policy.update_column(:method, "unknown_method")
+      result = calculate
       assert result[:success]
-      # 未知のメソッドの場合は償却額0
       assert_equal 0, result[:depreciation_amount]
       assert_equal 1_000_000, result[:closing_book_value]
     end
 
-    test "handles nil fiscal year gracefully" do
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: nil
-      )
-
-      # fiscal_yearがnilでも動作する（前年度検索がスキップされる）
-      result = calculator.call
-
+    test "handles nil fiscal year" do
+      create_policy_with_method("straight_line")
+      result = DepreciationCalculator.new(fixed_asset: @fixed_asset.reload, fiscal_year: nil).call
       assert result[:success]
       assert_equal 1_000_000, result[:opening_book_value]
     end
 
-    # ==================== 保証率・改定償却率テーブルのテスト ====================
-
-    test "uses guarantee rate from table for standard useful life" do
-      @policy.update_column(:method, "declining_balance_200")
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      # 耐用年数10年の保証率は 0.11430
-      guarantee_rate = calculator.send(:guarantee_rate)
-      assert_equal 0.11430, guarantee_rate
-    end
-
-    test "calculates guarantee rate for non-standard useful life" do
-      @policy.update!(method: "declining_balance_200", useful_life_years: 12)
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      # テーブルにない耐用年数は計算で求める
-      guarantee_rate = calculator.send(:guarantee_rate)
-      # 1/12 * 0.11430 ≒ 0.009525
-      assert_in_delta 0.009525, guarantee_rate, 0.0001
-    end
-
-    test "uses revised rate from table for standard useful life" do
-      @policy.update_column(:method, "declining_balance_200")
-
-      calculator = DepreciationCalculator.new(
-        fixed_asset: @fixed_asset,
-        fiscal_year: @fiscal_year
-      )
-
-      # 耐用年数10年の改定償却率は 0.100
-      revised_rate = calculator.send(:revised_depreciation_rate)
-      assert_equal 0.100, revised_rate
+    test "handles rate not found for unusual useful life" do
+      create_policy_with_method("straight_line", useful_life: 99)
+      result = calculate
+      assert result[:success]
+      assert_equal 0, result[:depreciation_amount]
     end
   end
 end

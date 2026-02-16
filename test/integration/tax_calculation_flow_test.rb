@@ -107,12 +107,12 @@ class TaxCalculationFlowTest < ActiveSupport::TestCase
       fiscal_year: @fiscal_year
     ).call
 
-    # 5. 計算結果を検証
+    # 5. 計算結果を検証（NTA定額法: 取得価額 × 定額法償却率）
     assert result[:success], "減価償却計算が成功すること"
     assert_equal 10_000_000, result[:opening_book_value]
-    # (10,000,000 * (1 - 0.1)) / 10 = 900,000
-    assert_equal 900_000, result[:depreciation_amount]
-    assert_equal 9_100_000, result[:closing_book_value]
+    # 10,000,000 * 0.100（定額法償却率、耐用年数10年） = 1,000,000
+    assert_equal 1_000_000, result[:depreciation_amount]
+    assert_equal 9_000_000, result[:closing_book_value]
 
     # 6. 減価償却結果を保存
     depreciation_year = DepreciationYear.create!(
@@ -125,6 +125,6 @@ class TaxCalculationFlowTest < ActiveSupport::TestCase
     )
 
     assert depreciation_year.persisted?
-    assert_equal 9_100_000, depreciation_year.closing_book_value.to_f
+    assert_equal 9_000_000, depreciation_year.closing_book_value.to_f
   end
 end

@@ -1,35 +1,5 @@
 module Tax
   class DepreciationCalculator
-    # 200%定率法の保証率テーブル（耐用年数別）
-    GUARANTEE_RATES = {
-      2 => 0.50847,
-      3 => 0.34776,
-      4 => 0.26505,
-      5 => 0.21600,
-      6 => 0.18327,
-      7 => 0.15909,
-      8 => 0.14065,
-      9 => 0.12577,
-      10 => 0.11430,
-      15 => 0.07909,
-      20 => 0.06141
-    }.freeze
-
-    # 200%定率法の改定償却率テーブル（耐用年数別）
-    REVISED_RATES = {
-      2 => 0.500,
-      3 => 0.334,
-      4 => 0.250,
-      5 => 0.200,
-      6 => 0.167,
-      7 => 0.143,
-      8 => 0.125,
-      9 => 0.112,
-      10 => 0.100,
-      15 => 0.067,
-      20 => 0.050
-    }.freeze
-
     def initialize(fixed_asset:, fiscal_year:)
       @fixed_asset = fixed_asset
       @fiscal_year = fiscal_year
@@ -39,7 +9,6 @@ module Tax
     def call
       return failure("Depreciation policy not found") unless @policy
 
-      # 償却タイプに応じた計算
       case @policy.depreciation_type
       when "immediate"
         calculate_immediate_depreciation
@@ -58,48 +27,157 @@ module Tax
 
     private
 
-    # 通常償却の計算
+    # ========== 通常償却 ==========
+
     def calculate_normal_depreciation
       previous_year = find_previous_depreciation_year
-      opening_value = previous_year&.closing_book_value || acquisition_cost_for_calculation
+      cost = acquisition_cost_for_calculation
+      opening_value = previous_year&.closing_book_value || cost
 
-      # 既に残存価額以下の場合は償却なし
-      min_value = acquisition_cost_for_calculation * @policy.residual_rate
-      if opening_value <= min_value
-        return {
-          success: true,
-          opening_book_value: opening_value,
-          depreciation_amount: 0,
-          closing_book_value: opening_value
-        }
+      if opening_value <= 1
+        return success_result(opening_value, 0, opening_value)
       end
 
-      depreciation_amount = calculate_depreciation(opening_value, previous_year)
+      depreciation_amount = calculate_by_method(opening_value, previous_year)
 
-      # 残存価額を下回らないように調整
-      closing_value = [ opening_value - depreciation_amount, min_value ].max
-
-      # 調整後の実際の償却額
+      closing_value = [opening_value - depreciation_amount, 1].max
       actual_depreciation = opening_value - closing_value
 
-      {
-        success: true,
-        opening_book_value: opening_value,
-        depreciation_amount: actual_depreciation,
-        closing_book_value: closing_value
-      }
+      success_result(opening_value, actual_depreciation, closing_value)
     end
 
-    # 即時償却（10万円未満）
+    def calculate_by_method(opening_value, previous_year)
+      case @policy.method
+      when "old_straight_line"
+        calculate_old_straight_line(opening_value)
+      when "old_declining_balance"
+        calculate_old_declining_balance(opening_value)
+      when "straight_line"
+        calculate_straight_line(opening_value)
+      when "declining_balance_250"
+        calculate_declining_balance(opening_value, previous_year, DepreciationRates::DECLINING_BALANCE_250_RATES)
+      when "declining_balance_200"
+        calculate_declining_balance(opening_value, previous_year, DepreciationRates::DECLINING_BALANCE_200_RATES)
+      else
+        0
+      end
+    end
+
+    # --- 旧定額法 ---
+    # 償却基礎額 = 取得価額 × 90%
+    # 年間償却額 = 償却基礎額 × 旧定額法償却率
+    # 累計95%到達後（簿価5%）→ 均等償却: (取得価額×5% - 1) / 5.0
+    # 最終簿価: 1円（備忘価額）
+    def calculate_old_straight_line(opening_value)
+      cost = acquisition_cost_for_calculation
+      rate = DepreciationRates.rate_for(method: "old_straight_line", useful_life: @policy.useful_life_years)
+      return 0 unless rate
+
+      threshold_5pct = cost * 0.05
+
+      if opening_value > threshold_5pct
+        depreciable_base = cost * 0.9
+        annual = depreciable_base * rate
+        [annual, opening_value - threshold_5pct].min
+      else
+        equal_amount = (threshold_5pct - 1) / 5.0
+        [equal_amount, opening_value - 1].min
+      end
+    end
+
+    # --- 旧定率法 ---
+    # 年間償却額 = 期首未償却残高 × 旧定率法償却率
+    # 累計95%到達後（簿価5%）→ 均等償却（旧定額法と同じ）
+    # 最終簿価: 1円
+    def calculate_old_declining_balance(opening_value)
+      cost = acquisition_cost_for_calculation
+      rate = DepreciationRates.rate_for(method: "old_declining_balance", useful_life: @policy.useful_life_years)
+      return 0 unless rate
+
+      threshold_5pct = cost * 0.05
+
+      if opening_value > threshold_5pct
+        annual = opening_value * rate
+        [annual, opening_value - threshold_5pct].min
+      else
+        equal_amount = (threshold_5pct - 1) / 5.0
+        [equal_amount, opening_value - 1].min
+      end
+    end
+
+    # --- 定額法（新） ---
+    # 年間償却額 = 取得価額 × 定額法償却率
+    # 残存価額概念なし、最終1円まで償却
+    def calculate_straight_line(opening_value)
+      cost = acquisition_cost_for_calculation
+      rate = DepreciationRates.rate_for(method: "straight_line", useful_life: @policy.useful_life_years)
+      return 0 unless rate
+
+      annual = cost * rate
+      [annual, opening_value - 1].min
+    end
+
+    # --- 定率法 (250%/200% 共通) ---
+    # 通常償却 = 期首帳簿価額 × rate
+    # 償却保証額 = 取得価額 × guarantee_rate
+    # 通常償却 < 償却保証額 → 改定償却率に切り替え
+    # 改定取得価額 = 通常償却が保証額を下回った最初の年の期首簿価
+    # 最終簿価: 1円
+    def calculate_declining_balance(opening_value, previous_year, rate_table)
+      rates = rate_table[@policy.useful_life_years]
+      return 0 unless rates
+
+      rate = rates[:rate]
+      guarantee_rate = rates[:guarantee_rate]
+      revised_rate = rates[:revised_rate]
+
+      cost = acquisition_cost_for_calculation
+      normal_depreciation = opening_value * rate
+
+      # 耐用年数2年は保証率なし（rate=1.000）
+      return [normal_depreciation, opening_value - 1].min unless guarantee_rate
+
+      guarantee_amount = cost * guarantee_rate
+
+      if normal_depreciation >= guarantee_amount
+        [normal_depreciation, opening_value - 1].min
+      else
+        revised_acquisition = find_revised_acquisition_value(opening_value, previous_year, rate, guarantee_amount)
+        revised_depreciation = revised_acquisition * revised_rate
+        [revised_depreciation, opening_value - 1].min
+      end
+    end
+
+    # 改定取得価額を探索
+    # 通常償却額が償却保証額を下回った最初の年の期首帳簿価額を返す
+    def find_revised_acquisition_value(current_opening_value, previous_year, rate, guarantee_amount)
+      return current_opening_value unless previous_year
+
+      # 前年度の通常償却額が保証額以上の場合、今年度が最初の年
+      previous_normal = previous_year.opening_book_value * rate
+      return current_opening_value if previous_normal >= guarantee_amount
+
+      # 前年度も保証額を下回っている場合、さらに遡って最初に下回った年を探す
+      all_years = @fixed_asset.depreciation_years
+        .joins(:fiscal_year)
+        .where("fiscal_years.year < ?", @fiscal_year.year)
+        .order("fiscal_years.year ASC")
+
+      all_years.each do |year|
+        if year.opening_book_value * rate < guarantee_amount
+          return year.opening_book_value
+        end
+      end
+
+      current_opening_value
+    end
+
+    # ========== 特殊償却タイプ（既存ロジック維持） ==========
+
+    # 即時償却（10万円未満、全額償却）
     def calculate_immediate_depreciation
       cost = acquisition_cost_for_calculation
-
-      {
-        success: true,
-        opening_book_value: cost,
-        depreciation_amount: cost,
-        closing_book_value: 0
-      }
+      success_result(cost, cost, 0)
     end
 
     # 一括償却資産（3年均等償却、10万円以上20万円未満）
@@ -113,23 +191,13 @@ module Tax
       # 3年経過したら償却完了
       years_elapsed = count_depreciation_years
       if years_elapsed >= 3
-        return {
-          success: true,
-          opening_book_value: opening_value,
-          depreciation_amount: 0,
-          closing_book_value: opening_value
-        }
+        return success_result(opening_value, 0, opening_value)
       end
 
-      depreciation_amount = [ annual_depreciation, opening_value ].min
+      depreciation_amount = [annual_depreciation, opening_value].min
       closing_value = opening_value - depreciation_amount
 
-      {
-        success: true,
-        opening_book_value: opening_value,
-        depreciation_amount: depreciation_amount,
-        closing_book_value: closing_value
-      }
+      success_result(opening_value, depreciation_amount, closing_value)
     end
 
     # 少額減価償却資産（青色申告者の特例、10万円以上30万円未満）
@@ -139,25 +207,14 @@ module Tax
       # 初年度に全額償却
       previous_year = find_previous_depreciation_year
       if previous_year
-        return {
-          success: true,
-          opening_book_value: 0,
-          depreciation_amount: 0,
-          closing_book_value: 0
-        }
+        return success_result(0, 0, 0)
       end
 
-      {
-        success: true,
-        opening_book_value: cost,
-        depreciation_amount: cost,
-        closing_book_value: 0
-      }
+      success_result(cost, cost, 0)
     end
 
-    # 特別償却（法人向け）
+    # 特別償却（法人向け）: 通常償却 + 特別償却
     def calculate_special_depreciation
-      # 通常償却 + 特別償却
       normal_result = calculate_normal_depreciation
       return normal_result unless normal_result[:success]
 
@@ -168,7 +225,7 @@ module Tax
       end
 
       total_depreciation = normal_result[:depreciation_amount] + special_amount
-      closing_value = [ normal_result[:opening_book_value] - total_depreciation, 0 ].max
+      closing_value = [normal_result[:opening_book_value] - total_depreciation, 0].max
 
       {
         success: true,
@@ -180,24 +237,20 @@ module Tax
       }
     end
 
-    # 割増償却（法人向け）
+    # 割増償却（法人向け）: 通常償却 × (1 + 割増率)
     def calculate_accelerated_depreciation
-      # 通常償却 × (1 + 割増率)
       normal_result = calculate_normal_depreciation
       return normal_result unless normal_result[:success]
 
       accelerated_rate = @policy.special_depreciation_rate || 0
       accelerated_amount = normal_result[:depreciation_amount] * (1 + accelerated_rate)
 
-      closing_value = [ normal_result[:opening_book_value] - accelerated_amount, 0 ].max
+      closing_value = [normal_result[:opening_book_value] - accelerated_amount, 0].max
 
-      {
-        success: true,
-        opening_book_value: normal_result[:opening_book_value],
-        depreciation_amount: accelerated_amount,
-        closing_book_value: closing_value
-      }
+      success_result(normal_result[:opening_book_value], accelerated_amount, closing_value)
     end
+
+    # ========== ヘルパー ==========
 
     # 事業利用割合を考慮した取得価額
     def acquisition_cost_for_calculation
@@ -218,150 +271,13 @@ module Tax
       @fixed_asset.depreciation_years.find_by(fiscal_year: previous_fiscal_year)
     end
 
-    def calculate_depreciation(opening_value, previous_year)
-      case @policy.method
-      when "straight_line"
-        calculate_straight_line(opening_value)
-      when "declining_balance_200"
-        calculate_declining_balance(opening_value, previous_year)
-      else
-        0
-      end
-    end
-
-    def calculate_straight_line(opening_value)
-      # 償却可能額
-      depreciable_amount = @fixed_asset.acquisition_cost * (1 - @policy.residual_rate)
-
-      # 年間償却額
-      annual_depreciation = depreciable_amount / @policy.useful_life_years
-
-      # 残存価額を下回らないように調整
-      min_value = @fixed_asset.acquisition_cost * @policy.residual_rate
-      max_depreciation = opening_value - min_value
-
-      # 既に残存価額以下の場合、または max_depreciation が負の場合は償却なし
-      return 0 if max_depreciation <= 0
-
-      [ annual_depreciation, max_depreciation ].min
-    end
-
-    def calculate_declining_balance(opening_value, previous_year)
-      # 定額法の償却率
-      straight_line_rate = 1.0 / @policy.useful_life_years
-
-      # 200%定率法の償却率（定額法の2倍）
-      declining_rate = straight_line_rate * 2.0
-
-      # 当期償却額（通常償却）
-      depreciation = opening_value * declining_rate
-
-      # 残存価額を下回らないように調整（最優先）
-      min_value = @fixed_asset.acquisition_cost * @policy.residual_rate
-      max_depreciation = opening_value - min_value
-
-      # 既に残存価額以下の場合は償却なし
-      return 0 if max_depreciation <= 0
-
-      # 通常償却額を残存価額制限内に収める
-      normal_depreciation_limited = [ depreciation, max_depreciation ].min
-
-      # 償却保証額（取得価額 × 保証率）
-      guarantee_amount = @fixed_asset.acquisition_cost * guarantee_rate
-
-      # 償却保証額を下回る場合は改定償却率を使用
-      # ただし、残存価額制限がかかっている場合は通常償却額を優先
-      if depreciation < guarantee_amount
-        # 改定取得価額 = 通常償却額が保証額を下回った最初の年の期首帳簿価額
-        revised_acquisition = find_revised_acquisition_value(opening_value, previous_year)
-        revised_depreciation = revised_acquisition * revised_depreciation_rate
-
-        # 改定償却額も残存価額制限を適用
-        revised_depreciation_limited = [ revised_depreciation, max_depreciation ].min
-
-        # 残存価額制限後の通常償却額と改定償却額を比較
-        # 残存価額制限がかかっている場合（通常償却額が制限された場合）は、通常償却額を優先
-        if normal_depreciation_limited < depreciation
-          # 残存価額制限がかかっている → 通常償却額を使用
-          return normal_depreciation_limited
-        else
-          # 残存価額制限がかかっていない → 改定償却額を使用
-          return revised_depreciation_limited
-        end
-      end
-
-      # 保証額を上回っている場合は通常償却（残存価額制限適用済み）
-      normal_depreciation_limited
-    end
-
-    # 保証率を取得（耐用年数に応じた値）
-    def guarantee_rate
-      years = @policy.useful_life_years
-
-      # テーブルに存在する場合はそれを使用
-      return GUARANTEE_RATES[years] if GUARANTEE_RATES[years]
-
-      # テーブルにない場合は、定額法償却率 × 保証率係数で計算
-      # 200%定率法の保証率係数は約0.11430（耐用年数10年の値を基準）
-      straight_line_rate = 1.0 / years
-      straight_line_rate * 0.11430
-    end
-
-    # 改定償却率を取得
-    def revised_depreciation_rate
-      years = @policy.useful_life_years
-
-      # テーブルに存在する場合はそれを使用
-      return REVISED_RATES[years] if REVISED_RATES[years]
-
-      # テーブルにない場合は、定額法償却率を使用
-      1.0 / years
-    end
-
-    # 改定取得価額を取得
-    # 通常償却額が償却保証額を下回った最初の年の期首帳簿価額を返す
-    def find_revised_acquisition_value(current_opening_value, previous_year)
-      guarantee_amount = @fixed_asset.acquisition_cost * guarantee_rate
-      straight_line_rate = 1.0 / @policy.useful_life_years
-      declining_rate = straight_line_rate * 2.0
-
-      # 今年度の通常償却額が保証額を下回っているかチェック
-      current_normal_depreciation = current_opening_value * declining_rate
-
-      # 前年度がない場合、または前年度の通常償却額が保証額以上の場合
-      # 今年度が最初に保証額を下回った年 → 今年度の期首を返す
-      unless previous_year
-        return current_opening_value
-      end
-
-      # 前年度の通常償却額を計算
-      previous_normal_depreciation = previous_year.opening_book_value * declining_rate
-
-      # 前年度の通常償却額が保証額以上の場合、今年度が最初の年
-      if previous_normal_depreciation >= guarantee_amount
-        return current_opening_value
-      end
-
-      # 前年度の通常償却額が保証額を下回っている場合、
-      # さらに遡って最初に保証額を下回った年を探す
-      all_years = @fixed_asset.depreciation_years
-        .joins(:fiscal_year)
-        .where("fiscal_years.year < ?", @fiscal_year.year)
-        .order("fiscal_years.year ASC")
-
-      # 最初に保証額を下回った年を探す
-      first_switch_year = nil
-      all_years.each do |year|
-        normal_depreciation = year.opening_book_value * declining_rate
-        if normal_depreciation < guarantee_amount
-          first_switch_year = year
-          break
-        end
-      end
-
-      # 最初に保証額を下回った年が見つかった場合、その期首を返す
-      # 見つからない場合は今年度の期首を返す
-      first_switch_year&.opening_book_value || current_opening_value
+    def success_result(opening_value, depreciation_amount, closing_value)
+      {
+        success: true,
+        opening_book_value: opening_value,
+        depreciation_amount: depreciation_amount,
+        closing_book_value: closing_value
+      }
     end
 
     def failure(message)

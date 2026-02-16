@@ -4,9 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { BrowserRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as useFixedAssetsHook from "../../hooks/useFixedAssets";
+import type { FixedAsset } from "../../types";
 import { FixedAssetsPage } from "../FixedAssetsPage";
 
-const mockFixedAssets = [
+const mockFixedAssets: FixedAsset[] = [
 	{
 		id: 1,
 		tenant_id: 1,
@@ -15,6 +16,10 @@ const mockFixedAssets = [
 		asset_type: "機械装置",
 		acquired_on: "2024-01-01",
 		acquisition_cost: 1000000,
+		account_item: "machinery_equipment",
+		account_item_name: "機械装置",
+		asset_classification: "tangible",
+		asset_classification_name: "有形減価償却資産",
 		asset_category: null,
 		notes: null,
 		created_at: "2025-01-01T00:00:00Z",
@@ -28,6 +33,10 @@ const mockFixedAssets = [
 		asset_type: "工具器具備品",
 		acquired_on: "2024-06-01",
 		acquisition_cost: 500000,
+		account_item: "tools_furniture",
+		account_item_name: "工具器具備品",
+		asset_classification: "tangible",
+		asset_classification_name: "有形減価償却資産",
 		asset_category: null,
 		notes: null,
 		created_at: "2025-01-01T00:00:00Z",

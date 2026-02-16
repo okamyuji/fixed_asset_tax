@@ -40,7 +40,7 @@ module Tax
 
       depreciation_amount = calculate_by_method(opening_value, previous_year)
 
-      closing_value = [opening_value - depreciation_amount, 1].max
+      closing_value = [ opening_value - depreciation_amount, 1 ].max
       actual_depreciation = opening_value - closing_value
 
       success_result(opening_value, actual_depreciation, closing_value)
@@ -78,10 +78,10 @@ module Tax
       if opening_value > threshold_5pct
         depreciable_base = cost * 0.9
         annual = depreciable_base * rate
-        [annual, opening_value - threshold_5pct].min
+        [ annual, opening_value - threshold_5pct ].min
       else
         equal_amount = (threshold_5pct - 1) / 5.0
-        [equal_amount, opening_value - 1].min
+        [ equal_amount, opening_value - 1 ].min
       end
     end
 
@@ -98,10 +98,10 @@ module Tax
 
       if opening_value > threshold_5pct
         annual = opening_value * rate
-        [annual, opening_value - threshold_5pct].min
+        [ annual, opening_value - threshold_5pct ].min
       else
         equal_amount = (threshold_5pct - 1) / 5.0
-        [equal_amount, opening_value - 1].min
+        [ equal_amount, opening_value - 1 ].min
       end
     end
 
@@ -114,7 +114,7 @@ module Tax
       return 0 unless rate
 
       annual = cost * rate
-      [annual, opening_value - 1].min
+      [ annual, opening_value - 1 ].min
     end
 
     # --- 定率法 (250%/200% 共通) ---
@@ -135,16 +135,16 @@ module Tax
       normal_depreciation = opening_value * rate
 
       # 耐用年数2年は保証率なし（rate=1.000）
-      return [normal_depreciation, opening_value - 1].min unless guarantee_rate
+      return [ normal_depreciation, opening_value - 1 ].min unless guarantee_rate
 
       guarantee_amount = cost * guarantee_rate
 
       if normal_depreciation >= guarantee_amount
-        [normal_depreciation, opening_value - 1].min
+        [ normal_depreciation, opening_value - 1 ].min
       else
         revised_acquisition = find_revised_acquisition_value(opening_value, previous_year, rate, guarantee_amount)
         revised_depreciation = revised_acquisition * revised_rate
-        [revised_depreciation, opening_value - 1].min
+        [ revised_depreciation, opening_value - 1 ].min
       end
     end
 
@@ -194,7 +194,7 @@ module Tax
         return success_result(opening_value, 0, opening_value)
       end
 
-      depreciation_amount = [annual_depreciation, opening_value].min
+      depreciation_amount = [ annual_depreciation, opening_value ].min
       closing_value = opening_value - depreciation_amount
 
       success_result(opening_value, depreciation_amount, closing_value)
@@ -225,7 +225,7 @@ module Tax
       end
 
       total_depreciation = normal_result[:depreciation_amount] + special_amount
-      closing_value = [normal_result[:opening_book_value] - total_depreciation, 0].max
+      closing_value = [ normal_result[:opening_book_value] - total_depreciation, 0 ].max
 
       {
         success: true,
@@ -245,7 +245,7 @@ module Tax
       accelerated_rate = @policy.special_depreciation_rate || 0
       accelerated_amount = normal_result[:depreciation_amount] * (1 + accelerated_rate)
 
-      closing_value = [normal_result[:opening_book_value] - accelerated_amount, 0].max
+      closing_value = [ normal_result[:opening_book_value] - accelerated_amount, 0 ].max
 
       success_result(normal_result[:opening_book_value], accelerated_amount, closing_value)
     end

@@ -163,8 +163,8 @@ module Tax
     end
 
     test "定率法テーブルの各エントリに必要なキーが存在" do
-      [DepreciationRates::DECLINING_BALANCE_250_RATES,
-       DepreciationRates::DECLINING_BALANCE_200_RATES].each do |table|
+      [ DepreciationRates::DECLINING_BALANCE_250_RATES,
+       DepreciationRates::DECLINING_BALANCE_200_RATES ].each do |table|
         table.each do |years, entry|
           assert entry.key?(:rate), "耐用年数#{years}にrateがない"
           assert entry.key?(:revised_rate), "耐用年数#{years}にrevised_rateがない"

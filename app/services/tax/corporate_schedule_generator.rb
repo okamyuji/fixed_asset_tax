@@ -16,17 +16,17 @@ module Tax
       results
     end
 
-    # 別表十六(一): 定額法償却資産
+    # 別表十六(一): 定額法償却資産（旧定額法・定額法）
     def generate_schedule_16_1
-      assets = fetch_assets_for_schedule("straight_line")
+      assets = fetch_assets_for_schedule(%w[old_straight_line straight_line])
       data = build_schedule_data(assets, "定額法")
 
       save_or_update_schedule("schedule_16_1", data)
     end
 
-    # 別表十六(二): 定率法償却資産
+    # 別表十六(二): 定率法償却資産（旧定率法・250%定率法・200%定率法）
     def generate_schedule_16_2
-      assets = fetch_assets_for_schedule("declining_balance_200")
+      assets = fetch_assets_for_schedule(%w[old_declining_balance declining_balance_250 declining_balance_200])
       data = build_schedule_data(assets, "定率法")
 
       save_or_update_schedule("schedule_16_2", data)

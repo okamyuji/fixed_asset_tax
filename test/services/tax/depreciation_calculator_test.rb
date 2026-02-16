@@ -110,7 +110,7 @@ module Tax
     # ==================== 定率法のテスト（200%定率法） ====================
 
     test "calculates 200% declining balance depreciation for first year" do
-      @policy.update_column(:method, "declining_balance")
+      @policy.update_column(:method, "declining_balance_200")
 
       calculator = DepreciationCalculator.new(
         fixed_asset: @fixed_asset,
@@ -128,7 +128,7 @@ module Tax
     end
 
     test "200% declining balance depreciation for second year" do
-      @policy.update_column(:method, "declining_balance")
+      @policy.update_column(:method, "declining_balance_200")
 
       previous_year = create(:fiscal_year, year: 2024)
       create(:depreciation_year,
@@ -155,7 +155,7 @@ module Tax
     end
 
     test "200% declining balance switches to revised rate when below guarantee" do
-      @policy.update_column(:method, "declining_balance")
+      @policy.update_column(:method, "declining_balance_200")
 
       # 6年目: 償却保証額を下回る年
       # 期首帳簿価額: 262,144
@@ -190,7 +190,7 @@ module Tax
     end
 
     test "200% declining balance respects residual value limit" do
-      @policy.update_column(:method, "declining_balance")
+      @policy.update_column(:method, "declining_balance_200")
 
       # 残存価額近くまで償却済み
       previous_year = create(:fiscal_year, year: 2024)
@@ -220,7 +220,7 @@ module Tax
     end
 
     test "declining balance with different useful life years" do
-      @policy.update!(method: "declining_balance", useful_life_years: 5)
+      @policy.update!(method: "declining_balance_200", useful_life_years: 5)
 
       calculator = DepreciationCalculator.new(
         fixed_asset: @fixed_asset,
@@ -372,7 +372,7 @@ module Tax
     # ==================== 保証率・改定償却率テーブルのテスト ====================
 
     test "uses guarantee rate from table for standard useful life" do
-      @policy.update_column(:method, "declining_balance")
+      @policy.update_column(:method, "declining_balance_200")
 
       calculator = DepreciationCalculator.new(
         fixed_asset: @fixed_asset,
@@ -385,7 +385,7 @@ module Tax
     end
 
     test "calculates guarantee rate for non-standard useful life" do
-      @policy.update!(method: "declining_balance", useful_life_years: 12)
+      @policy.update!(method: "declining_balance_200", useful_life_years: 12)
 
       calculator = DepreciationCalculator.new(
         fixed_asset: @fixed_asset,
@@ -399,7 +399,7 @@ module Tax
     end
 
     test "uses revised rate from table for standard useful life" do
-      @policy.update_column(:method, "declining_balance")
+      @policy.update_column(:method, "declining_balance_200")
 
       calculator = DepreciationCalculator.new(
         fixed_asset: @fixed_asset,

@@ -5,7 +5,7 @@ class DepreciationPolicy < ApplicationRecord
   belongs_to :fixed_asset
 
   validates :method, presence: true, inclusion: {
-    in: %w[straight_line declining_balance declining_balance_250 declining_balance_200]
+    in: %w[old_straight_line old_declining_balance straight_line declining_balance_250 declining_balance_200]
   }
   validates :useful_life_years, presence: true, numericality: {
     only_integer: true,

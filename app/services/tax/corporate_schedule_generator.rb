@@ -26,7 +26,7 @@ module Tax
 
     # 別表十六(二): 定率法償却資産
     def generate_schedule_16_2
-      assets = fetch_assets_for_schedule("declining_balance")
+      assets = fetch_assets_for_schedule("declining_balance_200")
       data = build_schedule_data(assets, "定率法")
 
       save_or_update_schedule("schedule_16_2", data)

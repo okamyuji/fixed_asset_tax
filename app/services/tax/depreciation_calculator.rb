@@ -222,7 +222,7 @@ module Tax
       case @policy.method
       when "straight_line"
         calculate_straight_line(opening_value)
-      when "declining_balance"
+      when "declining_balance_200"
         calculate_declining_balance(opening_value, previous_year)
       else
         0

@@ -16,7 +16,7 @@ module Tax
       @policy = create(:depreciation_policy,
         tenant: @tenant,
         fixed_asset: @fixed_asset,
-        method: "declining_balance",
+        method: "declining_balance_200",
         useful_life_years: 10,
         residual_rate: 0.0
       )

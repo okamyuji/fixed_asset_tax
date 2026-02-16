@@ -151,10 +151,11 @@ module AssetClassifications
 
   # 償却方法
   DEPRECIATION_METHODS = {
-    straight_line: { name: "定額法", code: "1" },
-    declining_balance: { name: "定率法", code: "2" },
-    declining_balance_250: { name: "250%定率法", code: "3" },
-    declining_balance_200: { name: "200%定率法", code: "4" }
+    old_straight_line: { name: "旧定額法", code: "1" },
+    old_declining_balance: { name: "旧定率法", code: "2" },
+    straight_line: { name: "定額法", code: "3" },
+    declining_balance_250: { name: "250%定率法", code: "4" },
+    declining_balance_200: { name: "200%定率法", code: "5" }
   }.freeze
 
   # 償却種類

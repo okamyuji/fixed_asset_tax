@@ -146,8 +146,9 @@ export interface FixedAssetUpdateRequest {
 
 export interface DepreciationPolicy {
 	method:
+		| "old_straight_line"
+		| "old_declining_balance"
 		| "straight_line"
-		| "declining_balance"
 		| "declining_balance_250"
 		| "declining_balance_200";
 	useful_life_years: number;
@@ -174,8 +175,9 @@ export interface DepreciationPolicyDetail extends DepreciationPolicy {
 
 export interface DepreciationPolicyCreateRequest {
 	method:
+		| "old_straight_line"
+		| "old_declining_balance"
 		| "straight_line"
-		| "declining_balance"
 		| "declining_balance_250"
 		| "declining_balance_200";
 	useful_life_years: number;
@@ -196,8 +198,9 @@ export interface DepreciationPolicyCreateRequest {
 
 export interface DepreciationPolicyUpdateRequest {
 	method?:
+		| "old_straight_line"
+		| "old_declining_balance"
 		| "straight_line"
-		| "declining_balance"
 		| "declining_balance_250"
 		| "declining_balance_200";
 	useful_life_years?: number;

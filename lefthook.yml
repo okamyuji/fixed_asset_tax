@@ -1,0 +1,35 @@
+# Lefthookの設定。.github/workflows/ci.ymlのscan_ruby、scan_js、lint、testを
+# pre-commitでミラーし、CIが落ちる前にローカルで止める。
+#
+# 初回セットアップ:
+#   bundle install
+#   bundle exec lefthook install
+#
+# rails testはMySQLが必要なので、事前にDBを起動しておくこと:
+#   docker compose up -d db
+pre-commit:
+  parallel: false
+  commands:
+    bundler-audit:
+      tags: scan_ruby
+      run: bin/bundler-audit
+    brakeman:
+      tags: scan_ruby
+      run: bin/brakeman --no-pager --quiet
+    importmap-audit:
+      tags: scan_js
+      run: bin/importmap audit
+    rubocop:
+      tags: lint
+      run: bin/rubocop -f github
+    rails-test:
+      tags: test
+      # compose.yml の `db` サービス（root / password）に揃える。
+      # 別ホスト/別パスワードのMySQLを使う場合はシェル側で同名の環境変数を
+      # 設定しておけばそちらが優先される（lefthookのenvは現環境を上書きする
+      # ためexportで先に渡す方法を使う場合は env を消す）。
+      env:
+        DB_HOST: "127.0.0.1"
+        DB_USER: "root"
+        DB_PASSWORD: "password"
+      run: bin/rails db:test:prepare test

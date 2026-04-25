@@ -56,6 +56,9 @@ group :development, :test do
 
   # Omakase Ruby styling [https://github.com/rails/rubocop-rails-omakase/]
   gem "rubocop-rails-omakase", require: false
+
+  # Polyglot Git hook manager [https://github.com/evilmartians/lefthook]
+  gem "lefthook", require: false
 end
 
 group :development do

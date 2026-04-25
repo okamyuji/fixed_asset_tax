@@ -498,6 +498,25 @@ npm run dev
 
 フロントエンド開発サーバーは `http://localhost:5173` で起動します。
 
+### Git pre-commitフック（lefthook）
+
+CIで実行されるチェック（`scan_ruby` / `scan_js` / `lint` / `test`）を、コミット前にローカルで自動実行する仕組みを用意しています。コミット時にチェックがpassするまで実際のコミットが作られないため、CI失敗の手戻りを減らせます。
+
+```bash
+# bundle install後に1回だけ実行
+bundle exec lefthook install
+```
+
+これで`git commit`時に以下が自動的に走ります。
+
+- `bin/bundler-audit`（gemの脆弱性スキャン）
+- `bin/brakeman --no-pager --quiet`（Railsの静的セキュリティスキャン）
+- `bin/importmap audit`（JavaScript依存の脆弱性スキャン）
+- `bin/rubocop -f github`（Rubyのlint）
+- `bin/rails db:test:prepare test`（Minitestの全件実行）
+
+`rails test`はMySQLが必要なので、コミット前に`docker compose up -d db`でDBを起動しておいてください。一時的にスキップしたい場合は`LEFTHOOK=0 git commit ...`で全フックを無効化できます。
+
 ## テスト
 
 ### ローカルでのバックエンドテスト

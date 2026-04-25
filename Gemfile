@@ -18,11 +18,11 @@ gem "stimulus-rails"
 gem "jbuilder"
 
 # Use Active Model has_secure_password [https://guides.rubyonrails.org/active_model_basics.html#securepassword]
-gem "bcrypt", "~> 3.1.21"
+gem "bcrypt", "~> 3.1.22"
 # JWT for API authentication
 gem "jwt"
 # minitest 5.x is required for Rails 8.1 compatibility
-gem "minitest", "~> 5.25"
+gem "minitest", "~> 6.0"
 
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem "tzinfo-data", platforms: %i[ windows jruby ]
@@ -56,6 +56,9 @@ group :development, :test do
 
   # Omakase Ruby styling [https://github.com/rails/rubocop-rails-omakase/]
   gem "rubocop-rails-omakase", require: false
+
+  # Polyglot Git hook manager [https://github.com/evilmartians/lefthook]
+  gem "lefthook", require: false
 end
 
 group :development do
